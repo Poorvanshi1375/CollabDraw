@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 99%;
+    --foreground: 240 10% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 9%;
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 10% 9%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 243 100% 97%;
+    --accent-foreground: 243 75% 40%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 90%;
+    --input: 240 6% 88%;
+    --ring: 243 75% 65%;
+    --radius: 0.625rem;
+    --chart-1: 243 75% 59%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 27 96% 61%;
+    --chart-4: 158 64% 42%;
+    --chart-5: 330 81% 60%;
+  }
+
+  .dark {
+    --background: 240 10% 6%;
+    --foreground: 0 0% 96%;
+    --card: 240 9% 9%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 9% 9%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 243 85% 67%;
+    --primary-foreground: 240 10% 6%;
+    --secondary: 240 6% 16%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 6% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 6% 18%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 63% 42%;
+    --destructive-foreground: 0 0% 96%;
+    --border: 240 6% 18%;
+    --input: 240 6% 20%;
+    --ring: 243 85% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background-color: hsl(var(--primary) / 0.18);
+    color: hsl(var(--primary));
+  }
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+/* Custom scrollbar, themed from the palette rather than left as a browser default */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.24);
+  background-clip: content-box;
+}
+
+/* Canvas cursor styles */
+.canvas-container {
+  cursor: crosshair;
+}
+
+.canvas-container.grab {
+  cursor: grab;
+}
+
+.canvas-container.grabbing {
+  cursor: grabbing;
+}
+
+.canvas-container.eraser {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.5l9.6-9.6c1-1 2.5-1 3.5 0l5.2 5.2c1 1 1 2.5 0 3.5L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>')
+    10 10, auto;
+}
+
+/* Dot-grid canvas texture, echoing the real drawing surface's grid on marketing chrome */
+.canvas-grid-texture {
+  background-image: radial-gradient(hsl(var(--foreground) / 0.14) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Entrance motion: one authored reveal, applied deliberately per-element rather than
+   scattered as a default on every section. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-reveal-up {
+  animation: reveal-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}

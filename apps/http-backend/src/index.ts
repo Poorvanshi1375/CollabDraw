@@ -1,0 +1,300 @@
+import { prismaClient, Prisma } from "@repo/db/client";
+import express from "express"
+import {CreateRoomSchema} from "@repo/common/types"
+import jwt from "jsonwebtoken"
+import 'dotenv/config'
+import cors from "cors"
+import { middleware } from "./middleware";
+import passport from "passport"
+import { Strategy as GoogleStrategy } from "passport-google-oauth20"
+import session from "express-session"
+
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is required")
+}
+
+const JWT_SECRET = process.env.JWT_SECRET
+
+const app = express()
+
+app.use(express.json())
+const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/+$/, "")
+
+app.use(cors({
+  origin: frontendUrl,
+  credentials: true
+}))
+
+// Session configuration for OAuth
+app.use(session({
+  secret: process.env.SESSION_SECRET || process.env.JWT_SECRET || "your-session-secret",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}))
+
+app.use(passport.initialize())
+app.use(passport.session())
+
+// Google OAuth Strategy
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  callbackURL: process.env.GOOGLE_CALLBACK_URL || "http://localhost:3001/auth/google/callback"
+}, async (accessToken, refreshToken, profile, done) => {
+  try {
+    const { id: googleId, displayName: name, emails, photos } = profile
+    const email = emails?.[0]?.value
+
+    if (!email) {
+      return done(new Error("No email found in Google profile"), undefined)
+    }
+
+    // Find or create user
+    let user = await prismaClient.user.findUnique({
+      where: { googleId }
+    })
+
+    if (!user) {
+      // Check if email already exists (from old system)
+      const existingUser = await prismaClient.user.findUnique({
+        where: { email }
+      })
+
+      if (existingUser) {
+        // Update existing user with Google ID
+        user = await prismaClient.user.update({
+          where: { email },
+          data: {
+            googleId,
+            name: name || existingUser.name,
+            image: photos?.[0]?.value || null
+          }
+        })
+      } else {
+        // Create new user
+        const emailPrefix = email.split("@")[0]
+        user = await prismaClient.user.create({
+          data: {
+            googleId,
+            email,
+            name: name || emailPrefix || email,
+            image: photos?.[0]?.value || null
+          }
+        })
+      }
+    } else {
+      // Update user info in case it changed
+      user = await prismaClient.user.update({
+        where: { googleId },
+        data: {
+          name: name || user.name,
+          image: photos?.[0]?.value || user.image
+        }
+      })
+    }
+
+    return done(null, user)
+  } catch (error) {
+    return done(error, undefined)
+  }
+}))
+
+passport.serializeUser((user: any, done) => {
+  done(null, user.id)
+})
+
+passport.deserializeUser(async (id: string, done) => {
+  try {
+    const user = await prismaClient.user.findUnique({ where: { id } })
+    done(null, user)
+  } catch (error) {
+    done(error, null)
+  }
+})
+
+// Google OAuth routes
+app.get("/auth/google", passport.authenticate("google", {
+  scope: ["profile", "email"]
+}))
+
+app.get("/auth/google/callback",
+  passport.authenticate("google", { session: false }),
+  (req, res) => {
+    const user = req.user as any
+
+    if (!user) {
+      return res.redirect(`${frontendUrl}/auth/error`)
+    }
+
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: "7d"
+    })
+
+    // Redirect to frontend with token
+    res.redirect(`${frontendUrl}/auth/callback?token=${token}`)
+  }
+)
+
+// Get current user
+app.get("/auth/me", middleware, async (req, res) => {
+  try {
+    const userId = req.userId
+
+    const user = await prismaClient.user.findUnique({
+      where: {
+        id: userId
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        image: true,
+        createdAt: true,
+        room: {
+          select: {
+            id: true,
+            roomName: true,
+            createdAt: true,
+            userId: true,
+            _count: { select: { shape: true } }
+          }
+        },
+        shapes: true
+      }
+    })
+
+    if (!user) {
+      res.status(404).json({
+        error: "User not found"
+      })
+      return
+    }
+
+    res.json({ user })
+  } catch (error) {
+    res.status(500).json({
+      error: "Internal server error"
+    })
+  }
+})
+
+// Room endpoints
+app.post("/room", middleware , async (req, res)=> {
+    const validRoom = CreateRoomSchema.safeParse(req.body)
+
+    if(!validRoom.success){
+        res.status(400).json({
+            error: "Invalid Room Name"
+        })
+        return;
+    }
+
+    const userId = req.userId
+
+    if(!userId){
+        res.status(401).json({
+            error: "User doesn't exist!"
+        })
+        return;
+    }
+
+    const { roomName } = validRoom.data
+
+    const existingRoom = await prismaClient.room.findFirst({
+        where: {
+            roomName
+        }
+    })
+
+    if(existingRoom){
+        res.status(409).json({
+            error: "Room already exists!"
+        })
+        return;
+    }
+
+    try {
+        const room = await prismaClient.room.create({
+            data: {
+                roomName,
+                userId
+            }
+        })
+
+        res.json({
+            room
+        })
+    } catch (error) {
+        // Two requests can both pass the findFirst check above before either
+        // insert commits; the DB-level unique constraint is the real guard.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            res.status(409).json({
+                error: "Room already exists!"
+            })
+            return;
+        }
+        res.status(500).json({
+            error: "Internal server error"
+        })
+    }
+})
+
+app.get("/room/:roomName", async (req, res)=> {
+    const roomName = req.params.roomName
+
+    const room = await prismaClient.room.findFirst({
+        where:{
+            roomName
+        },
+        include: {
+            shape: true
+        }
+    })
+
+    res.json({
+        room
+    })
+})
+
+// Legacy /user endpoint for compatibility
+app.get("/user", middleware , async (req, res)=>{
+    const userId = req.userId
+
+    const user = await prismaClient.user.findUnique({
+        where:{
+            id: userId
+        },
+        select:{
+            id: true,
+            email: true,
+            name: true,
+            image: true,
+            room: {
+                select: {
+                    id: true,
+                    roomName: true,
+                    createdAt: true,
+                    userId: true,
+                    _count: { select: { shape: true } }
+                }
+            },
+            shapes: true
+        }
+    })
+
+    res.json({
+        user
+    })
+})
+
+const PORT = process.env.PORT || 3001
+
+app.listen(PORT, ()=>{
+    console.log(`HTTP Server listening on port ${PORT}`)
+})
